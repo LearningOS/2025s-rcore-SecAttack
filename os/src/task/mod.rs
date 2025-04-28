@@ -14,6 +14,9 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
+///定义常量最大系统调用数
+const MAX_SYSCALL_NUM: usize = 500;
+
 use crate::config::MAX_APP_NUM;
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
@@ -54,6 +57,7 @@ lazy_static! {
         let mut tasks = [TaskControlBlock {
             task_cx: TaskContext::zero_init(),
             task_status: TaskStatus::UnInit,
+            task_syscall_counts: [0;MAX_SYSCALL_NUM],
         }; MAX_APP_NUM];
         for (i, task) in tasks.iter_mut().enumerate() {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
@@ -135,6 +139,21 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+    ///增加当前任务的系统调用次数
+    fn increase_current_syscall_counts(&self, syscall_id: usize) -> usize {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let syscall_counts = &mut inner.tasks[current].task_syscall_counts[syscall_id];
+        *syscall_counts += 1;
+        *syscall_counts
+    }
+
+    ///获取当前任务的系统调用次数
+    fn get_current_syscall_counts(&self, syscall_id: usize) -> usize {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].task_syscall_counts[syscall_id]
+    }
 }
 
 /// Run the first task in task list.
@@ -168,4 +187,13 @@ pub fn suspend_current_and_run_next() {
 pub fn exit_current_and_run_next() {
     mark_current_exited();
     run_next_task();
+}
+/// 增加当前任务的系统调用次数
+pub fn increase_current_syscall_counts(syscall_id: usize) {
+    TASK_MANAGER.increase_current_syscall_counts(syscall_id);
+}
+
+/// 获取当前任务的系统调用次数
+pub fn get_current_syscall_counts(syscall_id: usize) -> usize {
+    TASK_MANAGER.get_current_syscall_counts(syscall_id)
 }
